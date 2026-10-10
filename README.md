@@ -14,11 +14,15 @@ emulator itself is entirely beebjit; this repository only adds the glue.
 
 ## What works
 
-- BBC Model B with OS 1.2, BASIC 2 and DFS 0.9 embedded (from the beebjit tree).
+- BBC Model B (OS 1.2, BASIC 2, DFS 0.9, 8271) or Master 128 (MOS 3.20,
+  BASIC 4, DFS, ADFS, 1770), chosen with the "Machine" core option. ROMs are
+  embedded at build time from the beebjit tree. Set the option per game from
+  RetroArch's quick menu for discs that need a Master.
 - Disc images in any format beebjit reads: `.ssd`, `.dsd`, `.hfe`, `.adl`,
   `.adf`, `.fsd`, `.dfi`, `.scp`, `.rfi`. The disc is auto-booted with
   Shift+BREAK (core option).
 - Sideways RAM in banks 4 to 7 by default (core option).
+- A "6502 core" option to force the interpreter, mainly for debugging.
 - Sound at 48 kHz, generated in lockstep with emulation.
 - RetroPad buttons map to BBC keys, each configurable from the core options.
   Host keyboards work through RetroArch's keyboard passthrough.
@@ -26,7 +30,7 @@ emulator itself is entirely beebjit; this repository only adds the glue.
 
 ## Not yet
 
-- Master 128 (beebjit has MOS 3.20, so this is mostly a model option).
+- Master Compact, MOS 3.50, and any BBC B variants other than the 8271 one.
 - Save states, disc swapping, tapes, joystick on the analogue port.
 - Anything other than Linux hosts. beebjit's JIT also needs a 64-bit host.
 
@@ -42,7 +46,27 @@ replaced so the frontend is the only clock:
 - `os_time_libretro.c`: the real monotonic clock, but a no-op sleeper.
 - `os_sound_libretro.c`: a non-blocking ring buffer instead of a sound device.
 
-Everything else is unmodified beebjit, pulled in as a git submodule.
+Everything else is unmodified beebjit, pulled in as a git submodule, with one
+build-time substitution: `asm_platform_libretro.h` replaces beebjit's fixed
+address constants on Linux ARM64. beebjit maps the emulated machine and its
+JIT at fixed virtual addresses, and the stock low addresses collide with the
+heap of a long-lived frontend such as RetroArch.
+
+Two things worth knowing if you touch the core:
+
+- `bbc_create()` keeps the OS ROM pointer it is given and re-reads it every
+  time a Master pages HAZEL out. The buffer has to outlive `retro_load_game()`.
+- The Master runs on beebjit's interpreter, because beebjit's JIT and inturbo
+  cores are 6502-only. It still keeps up on the RG40XXV, but with less margin
+  than the Model B.
+
+Debug aids, all read from the environment: `BEEBJIT_LOG_VIDEO=1` traces ULA,
+CRTC and paging registers; `BEEBJIT_LOG_INPUT=1` traces pad and key events;
+`BEEBJIT_DUMP_FRAME=<path>` writes one frame; `BEEBJIT_DEBUG=1 BEEBJIT_PRINT=1`
+prints every 6502 instruction; `BEEBJIT_LOG_FLAGS` and `BEEBJIT_OPT_FLAGS` pass
+beebjit's own flag strings; `BEEBJIT_AUTOKEY_FRAME=<n>` presses Space at frame
+n for benchmarks. `scripts/rt.c` is a minimal libretro host for running the
+core headlessly on the device, and `scripts/bgra2png.py` converts its frames.
 
 ## Building
 

@@ -7,8 +7,11 @@ TARGET := beebjit_libretro.so
 
 CFLAGS ?= -O3 -DNDEBUG
 override CFLAGS += -fPIC -Wall -Wno-unknown-warning-option -Wno-address-of-packed-member \
-          -I$(BEEBJIT) -I$(BEEBJIT)/asm -I.
-ASFLAGS := -fPIC -I$(BEEBJIT) -I$(BEEBJIT)/asm
+          -I$(BEEBJIT) -I$(BEEBJIT)/asm -I. $(PLATFORM_HDR)
+ASFLAGS = -fPIC -I$(BEEBJIT) -I$(BEEBJIT)/asm -I. $(PLATFORM_HDR)
+# asm_platform_libretro.h replaces beebjit's fixed-address platform header; see
+# the comment in that file.
+PLATFORM_HDR := -DBEEBJIT_ASM_PLATFORM_H -include asm_platform_libretro.h
 LDFLAGS += -shared -Wl,--no-undefined -Wl,-version-script=link.T -lm -lpthread
 
 BEEBJIT_C := \

@@ -18,6 +18,11 @@ default password `root`).
 3. Put disc images in `ROMS/BBC` on the SD card. Any folder name listed under
    `[friendly]` in `global.ini` (bbc, bbcmicro, beeb, acornbbc) works.
 
+The core defaults to a Model B. For a disc that needs a Master 128, open the
+RetroArch quick menu (MENU held plus SELECT), go to Core Options, set
+"Machine" to "Master 128", and save it as a game option so it sticks for that
+disc only. Restart the content for the change to take effect.
+
 Default pad mapping (change in RetroArch core options):
 
 | Pad | BBC key |

@@ -20,6 +20,7 @@
 #include "os_sound_libretro.h"
 #include "render.h"
 #include "sound.h"
+#include "state_6502.h"
 #include "video.h"
 
 #include "roms_data.h"
@@ -53,12 +54,15 @@ static int s_running;
 static int s_thread_exited;
 static int s_pending_ack;
 static uint32_t s_width;
+static uint32_t* s_p_frame_copy;   /* frame handed to the frontend; see retro_run */
 static uint32_t s_height;
 static int16_t s_audio_mono[k_audio_chunk];
 static int16_t s_audio_stereo[k_audio_chunk * 2];
 static int s_break_held_frames;
 static char s_disc_path[4096];
 static int s_swram;
+static int s_is_master;
+static int s_cpu_mode = k_cpu_mode_jit;
 static uint32_t s_frame_count;
 static long s_autokey_frame = -1;   /* env BEEBJIT_AUTOKEY_FRAME, for benchmarks */
 
@@ -137,7 +141,7 @@ static uint8_t s_pad_key[k_num_pad_buttons];
 static int s_pad_down[k_num_pad_buttons];
 static char s_option_keys[k_num_pad_buttons][32];
 static char s_option_desc[k_num_pad_buttons][512];
-static struct retro_variable s_variables[k_num_pad_buttons + 3];
+static struct retro_variable s_variables[k_num_pad_buttons + 5];
 
 static uint8_t
 key_from_name(const char* p_name) {
@@ -174,6 +178,12 @@ build_variables(void) {
     s_variables[i].key = s_option_keys[i];
     s_variables[i].value = s_option_desc[i];
   }
+  s_variables[i].key = "beebjit_model";
+  s_variables[i].value = "Machine (restart); Model B|Master 128";
+  i++;
+  s_variables[i].key = "beebjit_cpu";
+  s_variables[i].value = "6502 core (restart); JIT|Interpreter";
+  i++;
   s_variables[i].key = "beebjit_autoboot";
   s_variables[i].value = "Auto-boot disc (Shift+BREAK); enabled|disabled";
   i++;
@@ -270,6 +280,9 @@ keyboard_event_cb(bool down, unsigned keycode, uint32_t character, uint16_t mods
     return;
   }
   key = retrok_to_beebjit(keycode);
+  if (getenv("BEEBJIT_LOG_INPUT")) {
+    log_cb(RETRO_LOG_INFO, "beebjit kbd %s retrok=%u -> key=%u\n", down ? "down" : "up", keycode, key);
+  }
   if (key == 0) {
     return;
   }
@@ -397,7 +410,12 @@ bool
 retro_load_game(const struct retro_game_info* info) {
   enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
   struct retro_keyboard_callback kcb = { keyboard_event_cb };
-  uint8_t os_rom[k_bbc_rom_size];
+  /* bbc_create() keeps the OS ROM pointer and re-reads it whenever a Master
+   * pages HAZEL out, so this must outlive retro_load_game(). A stack buffer
+   * here cost a day: it worked in a tiny host whose stack happened to stay
+   * intact and booted the Master into garbage inside RetroArch.
+   */
+  static uint8_t os_rom[k_bbc_rom_size];
   uint8_t rom[k_bbc_rom_size];
   int autoboot;
 
@@ -412,23 +430,39 @@ retro_load_game(const struct retro_game_info* info) {
   read_pad_options();
   autoboot = option_enabled("beebjit_autoboot", 1);
   s_swram = option_enabled("beebjit_swram", 1);
+  {
+    struct retro_variable var = { "beebjit_model", NULL };
+    s_is_master = 0;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+      s_is_master = !strcmp(var.value, "Master 128");
+    }
+    var.key = "beebjit_cpu"; var.value = NULL;
+    s_cpu_mode = k_cpu_mode_jit;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+      if (!strcmp(var.value, "Interpreter")) s_cpu_mode = k_cpu_mode_interp;
+    }
+  }
 
   strncpy(s_disc_path, info->path, sizeof(s_disc_path) - 1);
 
-  memcpy(os_rom, os12_rom, k_bbc_rom_size);
-  /* Model B, 8271, JIT, slow (real-time) mode => accurate + synchronous sound. */
-  s_p_bbc = bbc_create(k_cpu_mode_jit,
-                       0,       /* is_master */
-                       s_swram, /* has_sideways_ram */
+  memcpy(os_rom, s_is_master ? mos320_mos_rom : os12_rom, k_bbc_rom_size);
+  /* JIT, slow (real-time) mode => accurate + synchronous sound.
+   * Model B: 8271 + DFS 0.9. Master 128: MOS 3.20, 1770, sideways RAM 4-7.
+   */
+  s_p_bbc = bbc_create(s_cpu_mode,
+                       s_is_master,
+                       (s_is_master || s_swram),   /* has_sideways_ram */
                        os_rom,
-                       0,       /* wd_1770_type */
-                       0, 0, 0, /* debug, run, print */
+                       s_is_master ? 1 : 0,        /* wd_1770_type */
+                       getenv("BEEBJIT_DEBUG") ? 1 : 0,   /* debug: needed for print */
+                       getenv("BEEBJIT_DEBUG") ? 1 : 0,   /* run (don't stop at start) */
+                       getenv("BEEBJIT_PRINT") ? 1 : 0,   /* print every instruction */
                        0,       /* fast */
                        0,       /* accurate (implied by !fast) */
                        0,       /* fasttape */
                        0,       /* test_map */
-                       "",      /* opt flags */
-                       "");     /* log flags */
+                       getenv("BEEBJIT_OPT_FLAGS") ? getenv("BEEBJIT_OPT_FLAGS") : "",
+                       getenv("BEEBJIT_LOG_FLAGS") ? getenv("BEEBJIT_LOG_FLAGS") : "");
   if (s_p_bbc == NULL) {
     log_cb(RETRO_LOG_ERROR, "bbc_create failed\n");
     return false;
@@ -445,15 +479,33 @@ retro_load_game(const struct retro_game_info* info) {
   render_create_internal_buffer(s_p_render);
   s_width = render_get_width(s_p_render);
   s_height = render_get_height(s_p_render);
+  /* beebjit allocates this with plain malloc. In a fresh process that is zero
+   * pages; inside a long-lived frontend it is recycled heap.
+   */
+  memset(render_get_buffer(s_p_render), 0, (size_t) s_width * s_height * sizeof(uint32_t));
   log_cb(RETRO_LOG_INFO, "beebjit render buffer %ux%u\n", s_width, s_height);
 
   bbc_power_on_reset(s_p_bbc);
 
-  memcpy(rom, basic_rom, k_bbc_rom_size);
-  bbc_load_rom(s_p_bbc, k_bbc_default_basic_rom_slot, rom);
-  memcpy(rom, dfs09_rom, k_bbc_rom_size);
-  bbc_load_rom(s_p_bbc, k_bbc_default_dfs_rom_slot, rom);
-  if (s_swram) {
+  if (s_is_master) {
+    static const struct { uint8_t slot; const uint8_t* p_rom; } master_roms[] = {
+      { 0x9, mos320_dfs_rom },     { 0xA, mos320_viewsht_rom },
+      { 0xB, mos320_edit_rom },    { 0xC, mos320_basic4_rom },
+      { 0xD, mos320_adfs_rom },    { 0xE, mos320_view_rom },
+      { 0xF, mos320_terminal_rom },
+    };
+    size_t i;
+    for (i = 0; i < sizeof(master_roms) / sizeof(master_roms[0]); ++i) {
+      memcpy(rom, master_roms[i].p_rom, k_bbc_rom_size);
+      bbc_load_rom(s_p_bbc, master_roms[i].slot, rom);
+    }
+  } else {
+    memcpy(rom, basic_rom, k_bbc_rom_size);
+    bbc_load_rom(s_p_bbc, k_bbc_default_basic_rom_slot, rom);
+    memcpy(rom, dfs09_rom, k_bbc_rom_size);
+    bbc_load_rom(s_p_bbc, k_bbc_default_dfs_rom_slot, rom);
+  }
+  if (s_is_master || s_swram) {
     int bank;
     for (bank = 4; bank <= 7; ++bank) {
       bbc_make_sideways_ram(s_p_bbc, bank);
@@ -518,6 +570,9 @@ poll_pad(void) {
       continue;
     }
     down = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, s_pad_buttons[i].id) ? 1 : 0;
+    if (down != s_pad_down[i] && getenv("BEEBJIT_LOG_INPUT")) {
+      log_cb(RETRO_LOG_INFO, "beebjit pad %s %s -> key=%u\n", s_pad_buttons[i].p_label, down ? "down" : "up", s_pad_key[i]);
+    }
     if (down && !s_pad_down[i]) {
       keyboard_system_key_pressed(s_p_keyboard, s_pad_key[i]);
     } else if (!down && s_pad_down[i]) {
@@ -559,6 +614,14 @@ retro_run(void) {
 
   poll_pad();
   s_frame_count++;
+  if (getenv("BEEBJIT_LOG_VIDEO") && (s_frame_count <= 6 || (s_frame_count % 25) == 1) && s_frame_count < 400) {
+    uint8_t crtc[k_video_crtc_num_registers];
+    video_get_crtc_registers(s_p_video, crtc);
+    log_cb(RETRO_LOG_INFO, "beebjit f=%u ula=%02X r12=%02X r13=%02X romsel=%02X acccon=%02X pc=%04X\n",
+           s_frame_count, video_get_ula_control(s_p_video), crtc[12], crtc[13],
+           bbc_get_romsel(s_p_bbc), bbc_get_acccon(s_p_bbc),
+           (unsigned) state_6502_get_pc(bbc_get_6502(s_p_bbc)));
+  }
   if (s_autokey_frame >= 0) {
     if (s_frame_count == (uint32_t) s_autokey_frame) {
       keyboard_system_key_pressed(s_p_keyboard, ' ');
@@ -604,7 +667,57 @@ retro_run(void) {
   /* beebjit's buffer holds both fields line-doubled (640 lines). The panel is
    * 480 lines, so present every other line: halves the upload for free.
    */
-  video_cb(render_get_buffer(s_p_render), s_width, s_height / 2, s_width * sizeof(uint32_t) * 2);
+  /* Hand the frontend a private copy. Some frontends keep reading the frame
+   * after video_cb returns (screenshots, threaded or deferred uploads), by
+   * which time the BBC thread may be drawing the next frame into beebjit's
+   * buffer. Copying one field is ~1 MB, well under a millisecond on an A53.
+   */
+  {
+    const uint32_t* p_src = render_get_buffer(s_p_render);
+    uint32_t y;
+    uint32_t h2 = s_height / 2;
+    if (!s_p_frame_copy) {
+      s_p_frame_copy = malloc((size_t) s_width * h2 * sizeof(uint32_t));
+    }
+    for (y = 0; y < h2; ++y) {
+      memcpy(s_p_frame_copy + y * s_width, p_src + (y * 2) * s_width, s_width * sizeof(uint32_t));
+    }
+  }
+  {
+    /* Debug aid: BEEBJIT_DUMP_FRAME=<path> writes the frame given to the
+     * frontend at frame BEEBJIT_DUMP_AT (default 200), same format as rt.c.
+     */
+    static int dumped;
+    const char* p_dump = getenv("BEEBJIT_DUMP_FRAME");
+    if (p_dump && !dumped) {
+      const char* p_at = getenv("BEEBJIT_DUMP_AT");
+      uint32_t at = p_at ? (uint32_t) atoi(p_at) : 200;
+      if (s_frame_count >= at) {
+        FILE* f = fopen(p_dump, "wb");
+        if (f) {
+          unsigned hdr[4] = { s_width, s_height / 2, s_width * 4, 0 };
+          fwrite(hdr, sizeof(hdr), 1, f);
+          fwrite(s_p_frame_copy, 4, (size_t) s_width * (s_height / 2), f);
+          fclose(f);
+          log_cb(RETRO_LOG_INFO, "beebjit dumped frame %u to %s\n", s_frame_count, p_dump);
+          {
+            uint8_t crtc[k_video_crtc_num_registers];
+            int i;
+            char buf[128];
+            char* p = buf;
+            video_get_crtc_registers(s_p_video, crtc);
+            for (i = 0; i < k_video_crtc_num_registers; ++i) {
+              p += sprintf(p, "%02X ", crtc[i]);
+            }
+            log_cb(RETRO_LOG_INFO, "beebjit ula=%02X crtc=%s\n",
+                   video_get_ula_control(s_p_video), buf);
+          }
+        }
+        dumped = 1;
+      }
+    }
+  }
+  video_cb(s_p_frame_copy, s_width, s_height / 2, s_width * sizeof(uint32_t));
   t3 = os_time_get_us();
   if (message.data[2]) {
     render_clear_buffer(s_p_render);
@@ -623,12 +736,14 @@ retro_run(void) {
   s_t_total += (t4 - t0);
   if (++s_stats_count == k_stats_frames) {
     log_cb(RETRO_LOG_INFO,
-           "beebjit frame avg us: emu-wait %u render %u video_cb %u audio %u total %u\n",
+           "beebjit frame avg us: emu-wait %u render %u video_cb %u audio %u total %u pc=%04X cycles=%llu\n",
            (unsigned) (s_t_wait / k_stats_frames),
            (unsigned) (s_t_render / k_stats_frames),
            (unsigned) (s_t_video / k_stats_frames),
            (unsigned) (s_t_audio / k_stats_frames),
-           (unsigned) (s_t_total / k_stats_frames));
+           (unsigned) (s_t_total / k_stats_frames),
+           (unsigned) state_6502_get_pc(bbc_get_6502(s_p_bbc)),
+           (unsigned long long) state_6502_get_cycles(bbc_get_6502(s_p_bbc)));
     s_t_wait = s_t_render = s_t_video = s_t_audio = s_t_total = 0;
     s_stats_count = 0;
   }

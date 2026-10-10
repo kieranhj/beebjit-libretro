@@ -7,10 +7,20 @@ import pathlib
 import sys
 
 ROMS = {
+    # Model B
     "os12_rom": "os12.rom",
     "basic_rom": "basic.rom",
     "dfs09_rom": "DFS-0.9.rom",
     "dfs226_rom": "DFS226",
+    # Master 128, MOS 3.20 (slot layout follows beebjit's config.c)
+    "mos320_mos_rom": "mos3.20/mos.rom",
+    "mos320_dfs_rom": "mos3.20/dfs.rom",
+    "mos320_viewsht_rom": "mos3.20/viewsht.rom",
+    "mos320_edit_rom": "mos3.20/edit.rom",
+    "mos320_basic4_rom": "mos3.20/basic4.rom",
+    "mos320_adfs_rom": "mos3.20/adfs.rom",
+    "mos320_view_rom": "mos3.20/view.rom",
+    "mos320_terminal_rom": "mos3.20/terminal.rom",
 }
 
 
