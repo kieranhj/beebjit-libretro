@@ -19,7 +19,7 @@ default password `root`).
    `[friendly]` in `global.ini` (bbc, bbcmicro, beeb, acornbbc) works.
 
 The core defaults to a Model B. For a disc that needs a Master 128, open the
-RetroArch quick menu (MENU held plus SELECT), go to Core Options, set
+RetroArch quick menu (MENU held plus X), go to Core Options, set
 "Machine" to "Master 128", and save it as a game option so it sticks for that
 disc only. Restart the content for the change to take effect.
 
@@ -34,5 +34,7 @@ Default pad mapping (change in RetroArch core options):
 | L2 / R2 | f0 / BREAK |
 | Start / Select | Escape / Space |
 
-muOS quits RetroArch with MENU held plus START, and opens the RetroArch quick
-menu with MENU held plus SELECT.
+muOS uses MENU as the RetroArch hotkey modifier on the RG40XXV (from
+`/opt/muos/device/control/retroarch.device.cfg`): MENU plus X opens the
+RetroArch quick menu, MENU plus START quits to muOS, MENU plus Y toggles the
+FPS counter, MENU plus L2 loads a state.
