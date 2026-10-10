@@ -1,0 +1,33 @@
+# Software Information
+display_name = "Acorn - BBC Micro (beebjit)"
+authors = "Chris Evans|Kieran Connell"
+supported_extensions = "ssd|dsd|hfe|adl|adf|fsd|dfi|scp|rfi"
+corename = "beebjit"
+categories = "Emulator"
+license = "GPLv3"
+permissions = ""
+display_version = "0.1"
+
+# Hardware Information
+manufacturer = "Acorn"
+systemname = "BBC Micro"
+systemid = "bbcmicro"
+
+# Libretro Features
+database = "Acorn - BBC Micro"
+supports_no_game = "false"
+savestate = "false"
+savestate_features = "null"
+cheats = "false"
+input_descriptors = "false"
+memory_descriptors = "false"
+libretro_saves = "false"
+core_options = "true"
+core_options_version = "0.0"
+load_subsystem = "false"
+hw_render = "false"
+needs_fullpath = "true"
+disk_control = "false"
+is_experimental = "true"
+
+description = "Libretro port of Chris Evans' beebjit, a very fast BBC Micro emulator with an ARM64/x64 JIT."

@@ -1,0 +1,3 @@
+[submodule "beebjit"]
+	path = beebjit
+	url = https://github.com/scarybeasts/beebjit.git

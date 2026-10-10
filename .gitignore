@@ -1,0 +1,7 @@
+obj/
+*.so
+*.dll
+*.dylib
+roms_data.h
+.zig-cache/
+out/
