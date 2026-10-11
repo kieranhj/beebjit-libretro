@@ -27,6 +27,11 @@ emulator itself is entirely beebjit; this repository only adds the glue.
 - RetroPad buttons map to BBC keys, each configurable from the core options.
   Host keyboards work through RetroArch's keyboard passthrough.
 - BREAK on RetroArch's reset.
+- The picture's aspect ratio is a Beeb monitor's: the 640x256 area of MODEs
+  0 to 2 is 5:4, and beebjit's border makes the whole 768x320 frame 6:5. The
+  "Aspect ratio" option set to 4:3 stretches the frame to fill the screen.
+  The frontend has to use the core's aspect ratio (RetroArch's "Core
+  provided").
 
 ## Not yet
 

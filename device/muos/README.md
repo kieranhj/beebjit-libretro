@@ -13,7 +13,10 @@ default password `root`).
 
 2. Tell muOS about the system. Create
    `/opt/muos/share/info/assign/Acorn BBC Micro/` containing `global.ini`
-   and `beebjit.ini` from this folder.
+   and `beebjit.ini` from this folder, and copy `beebjit.cfg` to
+   `/opt/muos/share/info/config/beebjit/`. muOS sets RetroArch to stretch
+   every core to the full panel; that override makes it use the core's
+   aspect ratio instead.
 
 3. Put disc images in `ROMS/BBC` on the SD card. Any folder name listed under
    `[friendly]` in `global.ini` (bbc, bbcmicro, beeb, acornbbc) works.

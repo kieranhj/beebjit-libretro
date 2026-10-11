@@ -141,7 +141,7 @@ static uint8_t s_pad_key[k_num_pad_buttons];
 static int s_pad_down[k_num_pad_buttons];
 static char s_option_keys[k_num_pad_buttons][32];
 static char s_option_desc[k_num_pad_buttons][512];
-static struct retro_variable s_variables[k_num_pad_buttons + 5];
+static struct retro_variable s_variables[k_num_pad_buttons + 8];
 
 static uint8_t
 key_from_name(const char* p_name) {
@@ -190,6 +190,9 @@ build_variables(void) {
   s_variables[i].key = "beebjit_swram";
   s_variables[i].value = "Sideways RAM in banks 4-7 (restart); enabled|disabled";
   i++;
+  s_variables[i].key = "beebjit_aspect";
+  s_variables[i].value = "Aspect ratio; Monitor|4:3";
+  i++;
   s_variables[i].key = NULL;
   s_variables[i].value = NULL;
 }
@@ -201,6 +204,37 @@ option_enabled(const char* p_key, int default_value) {
     return !strcmp(var.value, "enabled");
   }
   return default_value;
+}
+
+/* The shape of the picture on the monitor. beebjit draws a 16 MHz pixel
+ * grid with every scanline doubled, which is square on a Beeb monitor: the
+ * 640x512 MODE 0-2 area is 5:4, as BeebEm and b2 show it, and beebjit's
+ * border makes the whole frame 768x640, 6:5. "4:3" stretches the frame to
+ * fill the screen instead. */
+static int s_aspect_4_3;
+
+static float
+frame_aspect(void) {
+  if (s_aspect_4_3 || !s_height) return 4.0f / 3.0f;
+  return (float) s_width / (float) s_height;
+}
+
+static void
+read_aspect_option(void) {
+  struct retro_variable var = { "beebjit_aspect", NULL };
+  int is_4_3 = environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value && !strcmp(var.value, "4:3");
+  if (is_4_3 != s_aspect_4_3) {
+    s_aspect_4_3 = is_4_3;
+    if (s_height) {
+      struct retro_game_geometry geom;
+      geom.base_width = s_width;
+      geom.base_height = s_height / 2;
+      geom.max_width = s_width;
+      geom.max_height = s_height / 2;
+      geom.aspect_ratio = frame_aspect();
+      environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geom);
+    }
+  }
 }
 
 static void
@@ -356,7 +390,7 @@ retro_get_system_av_info(struct retro_system_av_info* info) {
   info->geometry.base_height = s_height / 2;
   info->geometry.max_width = s_width;
   info->geometry.max_height = s_height / 2;
-  info->geometry.aspect_ratio = 4.0f / 3.0f;
+  info->geometry.aspect_ratio = frame_aspect();
   info->timing.fps = 50.0;
   info->timing.sample_rate = (double) k_sample_rate;
 }
@@ -428,6 +462,7 @@ retro_load_game(const struct retro_game_info* info) {
   }
   environ_cb(RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, &kcb);
   read_pad_options();
+  read_aspect_option();
   autoboot = option_enabled("beebjit_autoboot", 1);
   s_swram = option_enabled("beebjit_swram", 1);
   {
@@ -605,6 +640,7 @@ retro_run(void) {
 
   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated) {
     read_pad_options();
+    read_aspect_option();
   }
 
   if (!s_running || s_thread_exited) {
